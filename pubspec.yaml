@@ -1,0 +1,22 @@
+name: venera_local_llm
+description: Venera-owned FFI bridge for a pinned llama.cpp local translation runtime.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: '>=3.8.0 <4.0.0'
+  flutter: '>=3.24.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  code_assets: 1.0.0
+  ffi: 2.2.0
+  crypto: 3.0.6
+  hooks: 1.0.3
+  native_toolchain_c: 0.17.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: 5.0.0

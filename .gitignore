@@ -1,0 +1,13 @@
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.idea/
+.packages
+build/
+android/
+ios/
+windows/
+*.dll
+*.dylib
+*.so
+*.xcframework
