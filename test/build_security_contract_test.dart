@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import '../hook/build.dart' show clangResponsePath;
+
 void main() {
   test('native builds are disconnected and disable backend plugins', () {
     var cmake = File('CMakeLists.txt').readAsStringSync();
@@ -18,5 +20,13 @@ void main() {
     expect(hook, contains("'cmake-windows-\$sourceKey/'"));
     expect(shim, isNot(contains('LoadLibrary')));
     expect(shim, isNot(contains('dlopen')));
+  });
+
+  test('clang response-file paths use forward slashes', () {
+    expect(
+      clangResponsePath(r'C:\Users\venera local\llama.cpp\src\llama.cpp'),
+      'C:/Users/venera local/llama.cpp/src/llama.cpp',
+    );
+    expect(clangResponsePath('/tmp/llama.cpp'), '/tmp/llama.cpp');
   });
 }

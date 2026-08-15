@@ -43,7 +43,9 @@ void main(List<String> arguments) async {
     );
     await responseFile.parent.create(recursive: true);
     await responseFile.writeAsString(
-      llamaSources.map((path) => '"$path"').join(Platform.lineTerminator),
+      llamaSources
+          .map((path) => '"${clangResponsePath(path)}"')
+          .join(Platform.lineTerminator),
       flush: true,
     );
 
@@ -87,6 +89,8 @@ void main(List<String> arguments) async {
     );
   });
 }
+
+String clangResponsePath(String path) => path.replaceAll('\\', '/');
 
 Future<void> _buildWindowsWithCmake(
   BuildInput input,
