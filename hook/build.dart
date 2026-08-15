@@ -38,12 +38,42 @@ void main(List<String> arguments) async {
       return;
     }
 
+    var cSources = llamaSources.where((path) => path.endsWith('.c')).toList();
+    var cppSources = llamaSources
+        .where((path) => path.endsWith('.cpp'))
+        .toList();
+    var includes = [
+      'include',
+      '${sourceDir.path}/include',
+      '${sourceDir.path}/src',
+      '${sourceDir.path}/ggml/include',
+      '${sourceDir.path}/ggml/src',
+      '${sourceDir.path}/ggml/src/ggml-cpu',
+    ];
+    var defines = {
+      'VENERA_LOCAL_LLM_BUILD': null,
+      'GGML_USE_CPU': null,
+      'GGML_VERSION': '"0.19.0"',
+      'GGML_COMMIT': '"0865990"',
+      if (input.config.code.targetOS == OS.android) '_GNU_SOURCE': null,
+      if (input.config.code.targetOS == OS.iOS) '_DARWIN_C_SOURCE': null,
+    };
+
+    await CBuilder.library(
+      name: 'venera_llama_c',
+      sources: cSources,
+      includes: includes,
+      defines: defines,
+      flags: [if (input.config.code.targetOS == OS.android) '-pthread'],
+      linkModePreference: LinkModePreference.static,
+    ).run(input: input, output: output);
+
     var responseFile = File.fromUri(
       input.outputDirectory.resolve('llama_cpp_sources.rsp'),
     );
     await responseFile.parent.create(recursive: true);
     await responseFile.writeAsString(
-      llamaSources
+      cppSources
           .map((path) => '"${clangResponsePath(path)}"')
           .join(Platform.lineTerminator),
       flush: true,
@@ -53,24 +83,10 @@ void main(List<String> arguments) async {
       name: 'venera_local_llm',
       assetName: 'src/native_bindings.dart',
       sources: ['src/venera_local_llm.cpp', 'src/ggml_backend_dl_disabled.cpp'],
-      includes: [
-        'include',
-        '${sourceDir.path}/include',
-        '${sourceDir.path}/src',
-        '${sourceDir.path}/ggml/include',
-        '${sourceDir.path}/ggml/src',
-        '${sourceDir.path}/ggml/src/ggml-cpu',
-      ],
-      defines: {
-        'VENERA_LOCAL_LLM_BUILD': null,
-        'GGML_USE_CPU': null,
-        'GGML_VERSION': '"0.19.0"',
-        'GGML_COMMIT': '"0865990"',
-        if (input.config.code.targetOS == OS.android) '_GNU_SOURCE': null,
-        if (input.config.code.targetOS == OS.iOS) '_DARWIN_C_SOURCE': null,
-        if (input.config.code.targetOS == OS.windows)
-          '_CRT_SECURE_NO_WARNINGS': null,
-      },
+      includes: includes,
+      defines: defines,
+      libraries: ['venera_llama_c'],
+      libraryDirectories: ['.'],
       language: Language.cpp,
       std: 'c++17',
       flags: [

@@ -16,6 +16,8 @@ void main() {
     expect(cmake, contains('ggml_backend_dl_disabled.cpp'));
     expect(hook, contains("'src/ggml_backend_dl_disabled.cpp'"));
     expect(hook, isNot(contains("'ggml-backend-dl.cpp'")));
+    expect(hook, contains('LinkModePreference.static'));
+    expect(hook, contains("libraries: ['venera_llama_c']"));
     expect(hook, contains("utf8.encode(input.packageRoot.toString())"));
     expect(hook, contains("'cmake-windows-\$sourceKey/'"));
     expect(shim, isNot(contains('LoadLibrary')));
