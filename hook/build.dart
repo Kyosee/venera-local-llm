@@ -9,6 +9,14 @@ import 'package:native_toolchain_c/native_toolchain_c.dart';
 import 'source_integrity.dart';
 
 const nativeHiddenVisibilityFlags = ['-fvisibility=hidden'];
+const veneraLocalLlmAbiSymbols = [
+  'venera_llm_cancel',
+  'venera_llm_complete_async',
+  'venera_llm_create',
+  'venera_llm_destroy',
+  'venera_llm_free_string',
+  'venera_llm_version',
+];
 
 void main(List<String> arguments) async {
   await build(arguments, (input, output) async {
@@ -83,6 +91,7 @@ void main(List<String> arguments) async {
           .join(Platform.lineTerminator),
       flush: true,
     );
+    var exportControlFile = await writeNativeExportControlFile(input);
 
     var builder = CBuilder.library(
       name: 'venera_local_llm',
@@ -100,6 +109,10 @@ void main(List<String> arguments) async {
       flags: [
         '@${responseFile.path}',
         ...nativeHiddenVisibilityFlags,
+        nativeExportControlFlag(
+          input.config.code.targetOS,
+          exportControlFile.path,
+        ),
         if (input.config.code.targetOS == OS.android) '-pthread',
       ],
     );
@@ -112,6 +125,44 @@ void main(List<String> arguments) async {
 }
 
 String clangResponsePath(String path) => path.replaceAll('\\', '/');
+
+String nativeExportControlContents(OS targetOS) {
+  return switch (targetOS) {
+    OS.android =>
+      '''
+{
+  global:
+    ${veneraLocalLlmAbiSymbols.map((symbol) => '$symbol;').join('\n    ')}
+  local:
+    *;
+};
+''',
+    OS.iOS =>
+      '${veneraLocalLlmAbiSymbols.map((symbol) => '_$symbol').join('\n')}\n',
+    _ => throw UnsupportedError('Export control is unsupported for $targetOS'),
+  };
+}
+
+String nativeExportControlFlag(OS targetOS, String path) {
+  var normalizedPath = clangResponsePath(path);
+  return switch (targetOS) {
+    OS.android => '-Wl,--version-script=$normalizedPath',
+    OS.iOS => '-Wl,-exported_symbols_list,$normalizedPath',
+    _ => throw UnsupportedError('Export control is unsupported for $targetOS'),
+  };
+}
+
+Future<File> writeNativeExportControlFile(BuildInput input) async {
+  var extension = input.config.code.targetOS == OS.android ? 'map' : 'list';
+  var file = File.fromUri(
+    input.outputDirectory.resolve('venera_local_llm.exports.$extension'),
+  );
+  await file.writeAsString(
+    nativeExportControlContents(input.config.code.targetOS),
+    flush: true,
+  );
+  return file;
+}
 
 Future<void> _buildWindowsWithCmake(
   BuildInput input,
