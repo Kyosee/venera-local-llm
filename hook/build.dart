@@ -89,6 +89,9 @@ void main(List<String> arguments) async {
       libraryDirectories: ['.'],
       language: Language.cpp,
       std: 'c++17',
+      cppLinkStdLib: input.config.code.targetOS == OS.android
+          ? 'c++_static'
+          : null,
       flags: [
         '@${responseFile.path}',
         if (input.config.code.targetOS == OS.windows)
