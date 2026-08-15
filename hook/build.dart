@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:code_assets/code_assets.dart';
+import 'package:crypto/crypto.dart';
 import 'package:hooks/hooks.dart';
 import 'package:native_toolchain_c/native_toolchain_c.dart';
 
@@ -121,8 +123,12 @@ Future<void> _buildWindowsWithCmake(
       '${input.config.code.targetArchitecture}',
     ),
   };
+  var sourceKey = sha256
+      .convert(utf8.encode(input.packageRoot.toString()))
+      .toString()
+      .substring(0, 16);
   var buildDir = Directory.fromUri(
-    input.outputDirectory.resolve('cmake-windows/'),
+    input.outputDirectory.resolve('cmake-windows-$sourceKey/'),
   );
   await buildDir.create(recursive: true);
   var outputPath = input.outputDirectory.toFilePath();
