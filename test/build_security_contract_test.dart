@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import '../hook/build.dart' show clangResponsePath;
+import '../hook/build.dart' show clangResponsePath, nativeHiddenVisibilityFlags;
 
 void main() {
   test('native builds are disconnected and disable backend plugins', () {
@@ -19,6 +19,11 @@ void main() {
     expect(hook, contains('LinkModePreference.static'));
     expect(hook, contains("libraries: ['venera_llama_c']"));
     expect(hook, contains("? 'c++_static'"));
+    expect(nativeHiddenVisibilityFlags, ['-fvisibility=hidden']);
+    expect(
+      RegExp(r'\.\.\.nativeHiddenVisibilityFlags').allMatches(hook),
+      hasLength(2),
+    );
     expect(hook, contains("utf8.encode(input.packageRoot.toString())"));
     expect(hook, contains("'cmake-windows-\$sourceKey/'"));
     expect(shim, isNot(contains('LoadLibrary')));

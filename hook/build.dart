@@ -8,6 +8,8 @@ import 'package:native_toolchain_c/native_toolchain_c.dart';
 
 import 'source_integrity.dart';
 
+const nativeHiddenVisibilityFlags = ['-fvisibility=hidden'];
+
 void main(List<String> arguments) async {
   await build(arguments, (input, output) async {
     if (!input.config.buildCodeAssets) return;
@@ -64,7 +66,10 @@ void main(List<String> arguments) async {
       sources: cSources,
       includes: includes,
       defines: defines,
-      flags: [if (input.config.code.targetOS == OS.android) '-pthread'],
+      flags: [
+        ...nativeHiddenVisibilityFlags,
+        if (input.config.code.targetOS == OS.android) '-pthread',
+      ],
       linkModePreference: LinkModePreference.static,
     ).run(input: input, output: output);
 
@@ -94,10 +99,7 @@ void main(List<String> arguments) async {
           : null,
       flags: [
         '@${responseFile.path}',
-        if (input.config.code.targetOS == OS.windows)
-          '/EHsc'
-        else
-          '-fvisibility=hidden',
+        ...nativeHiddenVisibilityFlags,
         if (input.config.code.targetOS == OS.android) '-pthread',
       ],
     );
