@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 
 const reviewedLlamaCppCommit = '08659901c43b51de735740f1cf61bb82fbe0c4e4';
+const sourceCanonicalization = 'crlf-to-lf';
 
 Future<List<Uri>> verifyVendoredSource(
   Uri packageRoot,
@@ -21,6 +23,7 @@ Future<List<Uri>> verifyVendoredSource(
   if (manifest is! Map ||
       manifest['commit'] != reviewedLlamaCppCommit ||
       manifest['sourceMode'] != 'vendored' ||
+      manifest['canonicalization'] != sourceCanonicalization ||
       manifest['fileCount'] is! int ||
       manifest['snapshotSha256'] is! String) {
     throw StateError('Invalid llama.cpp source manifest');
@@ -77,13 +80,40 @@ Future<SourceSnapshot> calculateSourceSnapshot(Directory sourceDir) async {
 
   var canonical = StringBuffer();
   for (var entry in entries) {
-    var fileDigest = await sha256.bind(entry.file.openRead()).first;
+    var fileDigest = await sha256
+        .bind(_canonicalizeCrLf(entry.file.openRead()))
+        .first;
     canonical.writeln('$fileDigest  ${entry.path}');
   }
   return SourceSnapshot(
     entries.map((entry) => entry.file).toList(growable: false),
     sha256.convert(utf8.encode(canonical.toString())).toString(),
   );
+}
+
+Stream<List<int>> _canonicalizeCrLf(Stream<List<int>> source) async* {
+  var pendingCarriageReturn = false;
+  await for (var chunk in source) {
+    var canonical = BytesBuilder(copy: false);
+    for (var byte in chunk) {
+      if (pendingCarriageReturn) {
+        if (byte == 0x0a) {
+          canonical.addByte(0x0a);
+          pendingCarriageReturn = false;
+          continue;
+        }
+        canonical.addByte(0x0d);
+        pendingCarriageReturn = false;
+      }
+      if (byte == 0x0d) {
+        pendingCarriageReturn = true;
+      } else {
+        canonical.addByte(byte);
+      }
+    }
+    if (canonical.length > 0) yield canonical.takeBytes();
+  }
+  if (pendingCarriageReturn) yield const [0x0d];
 }
 
 final class SourceSnapshot {

@@ -4,6 +4,7 @@
   "license": "MIT",
   "backend": "cpu",
   "sourceMode": "vendored",
+  "canonicalization": "crlf-to-lf",
   "fileCount": 331,
-  "snapshotSha256": "446917670e0ee434c663c0efef28ffb86825e9c0b50ee586add5d4cc9ff79833"
+  "snapshotSha256": "19dc3107bd9fe56fb559cabc36b6421c395e69c66c19efbc9276b5c4b4e544a3"
 }
