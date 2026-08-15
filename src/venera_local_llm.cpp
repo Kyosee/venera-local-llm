@@ -20,7 +20,11 @@ struct venera_llm_engine {
     std::mutex generation_mutex;
     std::mutex active_mutex;
     std::condition_variable active_cv;
-    std::atomic<bool> cancelled = false;
+    // Cancellation is generation-based rather than a shared boolean. Each
+    // submitted request snapshots the current generation; cancel() advances it
+    // so every already-submitted request observes cancellation, while a later
+    // request can snapshot the new generation without reviving older work.
+    std::atomic<uint64_t> cancel_generation = 0;
     int32_t context_size = 0;
     int active_jobs = 0;
 };
@@ -87,7 +91,11 @@ std::string generate(
     const char * user_prompt,
     int32_t max_tokens,
     float temperature,
-    uint32_t seed) {
+    uint32_t seed,
+    uint64_t request_generation) {
+    if (engine->cancel_generation.load() != request_generation) {
+        throw std::runtime_error("cancelled");
+    }
     llama_memory_clear(llama_get_memory(engine->context), true);
     auto prompt = apply_chat_template(engine->model, system_prompt, user_prompt);
     auto tokens = tokenize(engine->vocab, prompt);
@@ -99,6 +107,9 @@ std::string generate(
         throw std::runtime_error("prompt and output exceed the configured context");
     }
     for (size_t offset = 0; offset < tokens.size(); offset += 512) {
+        if (engine->cancel_generation.load() != request_generation) {
+            throw std::runtime_error("cancelled");
+        }
         auto count = static_cast<int32_t>(
             std::min<size_t>(512, tokens.size() - offset));
         if (llama_decode(
@@ -119,7 +130,7 @@ std::string generate(
     output.reserve(static_cast<size_t>(max_tokens) * 4);
     try {
         for (int32_t i = 0; i < max_tokens; i++) {
-            if (engine->cancelled.load()) {
+            if (engine->cancel_generation.load() != request_generation) {
                 throw std::runtime_error("cancelled");
             }
             auto token = llama_sampler_sample(sampler, engine->context, -1);
@@ -205,10 +216,11 @@ extern "C" VENERA_LOCAL_LLM_API int32_t venera_llm_complete_async(
     try {
         std::string system_copy(system_prompt);
         std::string user_copy(user_prompt);
+        uint64_t request_generation;
         {
             std::lock_guard lock(engine->active_mutex);
             engine->active_jobs++;
-            engine->cancelled.store(false);
+            request_generation = engine->cancel_generation.load();
         }
         try {
             std::thread([
@@ -218,6 +230,7 @@ extern "C" VENERA_LOCAL_LLM_API int32_t venera_llm_complete_async(
                 max_tokens,
                 temperature,
                 seed,
+                request_generation,
                 callback,
                 user_data
             ] {
@@ -231,9 +244,13 @@ extern "C" VENERA_LOCAL_LLM_API int32_t venera_llm_complete_async(
                         user.c_str(),
                         max_tokens,
                         temperature,
-                        seed);
+                        seed,
+                        request_generation);
                 } catch (const std::exception & error) {
-                    error_code = engine->cancelled.load() ? 2 : 3;
+                    error_code =
+                        engine->cancel_generation.load() != request_generation
+                            ? 2
+                            : 3;
                     result = error.what();
                 } catch (...) {
                     error_code = 3;
@@ -257,7 +274,7 @@ extern "C" VENERA_LOCAL_LLM_API int32_t venera_llm_complete_async(
 }
 
 extern "C" VENERA_LOCAL_LLM_API void venera_llm_cancel(venera_llm_engine * engine) {
-    if (engine != nullptr) engine->cancelled.store(true);
+    if (engine != nullptr) engine->cancel_generation.fetch_add(1);
 }
 
 extern "C" VENERA_LOCAL_LLM_API void venera_llm_destroy(venera_llm_engine * engine) {

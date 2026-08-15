@@ -1,26 +1,32 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:code_assets/code_assets.dart';
 import 'package:hooks/hooks.dart';
 import 'package:native_toolchain_c/native_toolchain_c.dart';
 
+import 'source_integrity.dart';
+
 void main(List<String> arguments) async {
   await build(arguments, (input, output) async {
     if (!input.config.buildCodeAssets) return;
+    if (input.config.code.targetOS != OS.android &&
+        input.config.code.targetOS != OS.iOS &&
+        input.config.code.targetOS != OS.windows) {
+      return;
+    }
 
     var packageRoot = input.packageRoot;
     var sourceDir = Directory.fromUri(
       packageRoot.resolve('third_party/llama.cpp/'),
     );
-    await _verifySource(packageRoot, sourceDir);
+    var sourceDependencies = await verifyVendoredSource(packageRoot, sourceDir);
     var llamaSources = await _llamaCppSources(
       sourceDir,
       input.config.code.targetArchitecture,
     );
     if (input.config.code.targetOS == OS.windows) {
       await _buildWindowsWithCmake(input, output, sourceDir);
-      output.dependencies.addAll(await _nativeDependencies(sourceDir));
+      output.dependencies.addAll(sourceDependencies);
       output.dependencies.addAll([
         packageRoot.resolve('CMakeLists.txt'),
         packageRoot.resolve('include/venera_local_llm.h'),
@@ -42,7 +48,7 @@ void main(List<String> arguments) async {
     var builder = CBuilder.library(
       name: 'venera_local_llm',
       assetName: 'src/native_bindings.dart',
-      sources: ['src/venera_local_llm.cpp'],
+      sources: ['src/venera_local_llm.cpp', 'src/ggml_backend_dl_disabled.cpp'],
       includes: [
         'include',
         '${sourceDir.path}/include',
@@ -73,7 +79,10 @@ void main(List<String> arguments) async {
       ],
     );
     await builder.run(input: input, output: output);
-    output.dependencies.addAll(llamaSources.map(Uri.file));
+    output.dependencies.addAll(sourceDependencies);
+    output.dependencies.add(
+      packageRoot.resolve('third_party/llama.cpp.source.json'),
+    );
   });
 }
 
@@ -187,50 +196,6 @@ Future<void> _run(
   }
 }
 
-Future<List<Uri>> _nativeDependencies(Directory sourceDir) async {
-  var dependencies = <Uri>[];
-  await for (var entity in sourceDir.list(recursive: true)) {
-    if (entity is! File ||
-        entity.path.contains('${Platform.pathSeparator}.git')) {
-      continue;
-    }
-    if (_nativeDependencyExtensions.any(entity.path.endsWith) ||
-        entity.path.endsWith('CMakeLists.txt')) {
-      dependencies.add(entity.uri);
-    }
-  }
-  dependencies.sort((a, b) => a.toString().compareTo(b.toString()));
-  return dependencies;
-}
-
-Future<void> _verifySource(Uri packageRoot, Directory sourceDir) async {
-  var manifestFile = File.fromUri(
-    packageRoot.resolve('third_party/llama.cpp.source.json'),
-  );
-  if (!manifestFile.existsSync() ||
-      !File('${sourceDir.path}/include/llama.h').existsSync()) {
-    throw StateError(
-      'Pinned llama.cpp source is missing. Run the reviewed bootstrap process '
-      'before building.',
-    );
-  }
-  var manifest = jsonDecode(await manifestFile.readAsString());
-  if (manifest is! Map || manifest['commit'] is! String) {
-    throw StateError('Invalid llama.cpp source manifest');
-  }
-  Future<ProcessResult> git(List<String> args) =>
-      Process.run('git', ['-C', sourceDir.path, ...args], runInShell: false);
-  var head = await git(['rev-parse', 'HEAD']);
-  if (head.exitCode != 0 ||
-      head.stdout.toString().trim() != manifest['commit']) {
-    throw StateError('llama.cpp commit does not match the trusted manifest');
-  }
-  var status = await git(['status', '--porcelain', '--untracked-files=no']);
-  if (status.exitCode != 0 || status.stdout.toString().trim().isNotEmpty) {
-    throw StateError('llama.cpp tracked source files are modified');
-  }
-}
-
 Future<List<String>> _llamaCppSources(
   Directory sourceDir,
   Architecture architecture,
@@ -283,7 +248,6 @@ const _ggmlSources = [
   'ggml-backend.cpp',
   'ggml-backend-meta.cpp',
   'ggml-backend-reg.cpp',
-  'ggml-backend-dl.cpp',
   'ggml-opt.cpp',
   'ggml-threading.cpp',
   'ggml-quants.c',
@@ -300,13 +264,4 @@ const _ggmlSources = [
   'ggml-cpu/unary-ops.cpp',
   'ggml-cpu/vec.cpp',
   'ggml-cpu/ops.cpp',
-];
-
-const _nativeDependencyExtensions = [
-  '.c',
-  '.cc',
-  '.cpp',
-  '.h',
-  '.hpp',
-  '.cmake',
 ];

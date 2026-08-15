@@ -4,6 +4,12 @@ project(venera_local_llm LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Native builds are hermetic: no upstream option may fetch code at configure
+# time, even if a future llama.cpp change accidentally enables such a branch.
+set(FETCHCONTENT_FULLY_DISCONNECTED ON CACHE BOOL "" FORCE)
+set(CMAKE_DISABLE_FIND_PACKAGE_Git ON CACHE BOOL "" FORCE)
+set(CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH OFF CACHE BOOL "" FORCE)
+
 set(VENERA_LLAMA_CPP_SOURCE_DIR "" CACHE PATH "Verified llama.cpp source checkout")
 if(NOT IS_ABSOLUTE "${VENERA_LLAMA_CPP_SOURCE_DIR}")
   message(FATAL_ERROR "VENERA_LLAMA_CPP_SOURCE_DIR must be an absolute verified path")
@@ -58,15 +64,23 @@ set(GGML_ZDNN OFF CACHE BOOL "" FORCE)
 set(GGML_ZENDNN OFF CACHE BOOL "" FORCE)
 
 # Upstream CMake normally discovers Git from PATH only to populate version
-# strings. The source commit is already verified by the Dart hook, so prevent
-# an extra PATH-resolved executable from entering the build.
-set(GIT_EXE "" CACHE FILEPATH "" FORCE)
+# strings. Point it at a non-existent absolute path so find_program cannot fall
+# back to a PATH-resolved executable.
+set(GIT_EXE "${CMAKE_CURRENT_LIST_DIR}/disabled-git" CACHE FILEPATH "" FORCE)
 set(GGML_BUILD_COMMIT "0865990" CACHE STRING "" FORCE)
 
 add_subdirectory(
   "${VENERA_LLAMA_CPP_SOURCE_DIR}"
   "${CMAKE_CURRENT_BINARY_DIR}/llama.cpp"
   EXCLUDE_FROM_ALL
+)
+
+get_target_property(_ggml_sources ggml SOURCES)
+list(FILTER _ggml_sources EXCLUDE REGEX "(^|[/\\\\])ggml-backend-dl\\.cpp$")
+set_property(TARGET ggml PROPERTY SOURCES "${_ggml_sources}")
+target_sources(ggml PRIVATE src/ggml_backend_dl_disabled.cpp)
+target_include_directories(
+  ggml PRIVATE "${VENERA_LLAMA_CPP_SOURCE_DIR}/ggml/src"
 )
 
 add_library(venera_local_llm SHARED src/venera_local_llm.cpp)
